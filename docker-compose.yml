@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # PHP-FPM Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: saas_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+      - ./docker/php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - saas_network
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=saas_db
+      - DB_USERNAME=saas_user
+      - DB_PASSWORD=saas_password
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=null
+      - REDIS_PORT=6379
+
+  # Nginx Web Server
+  nginx:
+    image: nginx:alpine
+    container_name: saas_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/sites/:/etc/nginx/sites-available
+      - ./docker/nginx/ssl/:/etc/ssl/certs
+    networks:
+      - saas_network
+    depends_on:
+      - app
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: saas_mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: saas_db
+      MYSQL_USER: saas_user
+      MYSQL_PASSWORD: saas_password
+      MYSQL_ROOT_PASSWORD: root_password
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/my.cnf
+    networks:
+      - saas_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: saas_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - saas_network
+    command: redis-server --appendonly yes
+
+  # Queue Worker
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: saas_queue
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - saas_network
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=saas_db
+      - DB_USERNAME=saas_user
+      - DB_PASSWORD=saas_password
+      - REDIS_HOST=redis
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+
+  # Scheduler
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: saas_scheduler
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - saas_network
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=saas_db
+      - DB_USERNAME=saas_user
+      - DB_PASSWORD=saas_password
+      - REDIS_HOST=redis
+    command: php artisan schedule:work
+
+  # Mailhog (for development)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: saas_mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - saas_network
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  saas_network:
+    driver: bridge

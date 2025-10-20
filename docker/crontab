@@ -1,0 +1,23 @@
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Laravel Scheduler
+* * * * * www-data cd /var/www/html && php artisan schedule:run >> /dev/null 2>&1
+
+# Cleanup logs (daily at 2 AM)
+0 2 * * * www-data find /var/www/html/storage/logs -name "*.log" -mtime +30 -delete
+
+# Cleanup sessions (daily at 3 AM)
+0 3 * * * www-data cd /var/www/html && php artisan session:gc
+
+# Backup database (daily at 4 AM)
+0 4 * * * www-data cd /var/www/html && php artisan backup:run --only-db
+
+# Send notification reminders (every 5 minutes)
+*/5 * * * * www-data cd /var/www/html && php artisan notifications:send-reminders
+
+# Process failed jobs (every 10 minutes)
+*/10 * * * * www-data cd /var/www/html && php artisan queue:retry all
+
+# Update subscription statuses (hourly)
+0 * * * * www-data cd /var/www/html && php artisan subscriptions:update-status
